@@ -1,42 +1,137 @@
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+/* * App.css
+ * สไตล์สำหรับ App.jsx (Navbar และ Layout หลัก)
+ * ธีมสีเหลืองทอง
+ */
+
+:root {
+  --primary-color: #FFD700; /* สีเหลืองทอง (Gold) */
+  --bg-color: #0d1117;
+  --bg-card: #161b22;
+  --text-color: #e2e8f0;
+  --text-color-secondary: #94a3b8;
+  --border-color: #2d343e;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+/* 1. App Layout หลัก */
+.app-container {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  width: 100vw; /* ใช้ viewport width เต็มจอ */
+  max-width: 100%; /* ป้องกันการล้น */
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  font-family: 'Roboto', sans-serif;
+  overflow-x: hidden; /* ป้องกัน Scroll แนวนอน */
 }
 
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
+/* 2. Navbar (เมนูหลัก) */
+.app-nav {
+  display: flex;
+  justify-content: space-between; 
+  align-items: center;
+  padding: 15px 40px; 
+  background-color: var(--bg-card);
+  border-bottom: 1px solid var(--border-color);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+}
+
+/* โลโก้/ชื่อโปรเจกต์ */
+.nav-logo {
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 700;
+  font-size: 1.4em;
+  color: var(--primary-color);
+}
+
+/* Container สำหรับเมนู */
+.nav-menu {
+  display: flex;
+  gap: 20px;
+}
+
+.app-nav a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  color: var(--text-color-secondary);
+  text-decoration: none;
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 600;
+  font-size: 1.1em;
+  border-radius: 8px;
+  transition: all 0.2s ease-in-out;
+  border: 2px solid transparent;
+}
+
+.app-nav a:hover {
+  color: var(--text-color);
+  background-color: rgba(255, 215, 0, 0.1); /* สีเหลืองจางๆ */
+}
+
+.app-nav a.active {
+  color: var(--primary-color);
+  border-bottom: 2px solid var(--primary-color);
+  box-shadow: 0 2px 10px rgba(255, 215, 0, 0.2);
+  border-radius: 8px 8px 0 0;
+}
+
+/* 3. Content Area (พื้นที่แสดงผล) */
+.app-content {
+  flex-grow: 1;
+  width: 100%; 
+  max-width: 100%; /* ลบค่า max-width เดิมที่อาจเป็น 1200px หรือ 1600px ออก */
+  margin: 0;      /* ลบ margin: 0 auto ออก */
+  padding: 0;     /* ลบ padding ออกเพื่อให้ Map ชิดขอบ (หรือใส่ padding น้อยๆ ถ้าต้องการ) */
+  box-sizing: border-box;
+}
+
+/* 4. Global H1 (สำหรับหน้ารอง) */
+h1 {
+    font-family: 'Montserrat', sans-serif;
+    font-weight: 600;
+    color: var(--primary-color);
+    margin-bottom: 40px !important;
+    font-size: 2.8em;
+    letter-spacing: 0.05em;
+    text-shadow: 0px 2px 5px rgba(0,0,0,0.3);
+    text-align: center;
+}
+
+@media (max-width: 900px) {
+  /* 1. ปรับ Navbar ให้เป็นแนวตั้ง */
+  .app-nav {
+    flex-direction: column; /* เรียงลงล่าง */
+    padding: 15px 20px;
+    gap: 15px; /* ระยะห่างระหว่างโลโก้กับเมนู */
   }
-  to {
-    transform: rotate(360deg);
+
+  /* 2. ปรับเมนูให้เรียงแนวตั้งหรือยืดเต็ม */
+  .nav-menu {
+    width: 100%;
+    justify-content: center;
+    flex-wrap: wrap; /* ให้ปุ่มตกลงมาถ้าพื้นที่ไม่พอ */
+    gap: 10px;
   }
-}
 
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
+  .app-nav a {
+    font-size: 0.95em; /* ลดขนาดตัวหนังสือเล็กน้อย */
+    padding: 8px 15px;
+    justify-content: center; /* จัดตัวหนังสือกลางปุ่ม */
+    flex-grow: 1; /* ให้ปุ่มยืดเต็มพื้นที่ */
   }
-}
 
-.card {
-  padding: 2em;
-}
-
-.read-the-docs {
-  color: #888;
+  /* 3. ปรับ Content ให้ชิดขอบมากขึ้นในมือถือ */
+  .app-content {
+    padding: 10px; /* ลด padding รอบนอก */
+  }
+  
+  h1 {
+      font-size: 1.8em; /* ลดขนาดหัวข้อ H1 */
+      margin-bottom: 20px !important;
+  }
 }

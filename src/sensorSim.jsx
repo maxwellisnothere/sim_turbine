@@ -1,257 +1,285 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Paho from 'paho-mqtt';
 
 // ----------------------------------------------------
-// *** การตั้งค่า MQTT Broker (ดึงจาก .env) ***
+// *** Config & Constants ***
 // ----------------------------------------------------
-// ตรวจสอบให้แน่ใจว่าได้ตั้งค่า VITE_MQTT_HOST, VITE_MQTT_PORT (9001), 
-// VITE_MQTT_USER, และ VITE_MQTT_PASSWD ในไฟล์ .env ของคุณ
-const MQTT_HOST = import.meta.env.VITE_MQTT_HOST; // IP Address ของ Broker (เช่น 172.20.10.3)
-const MQTT_PORT = import.meta.env.VITE_MQTT_PORT; // Port สำหรับ WebSocket (9001)
+const MQTT_HOST = import.meta.env.VITE_MQTT_HOST;
+const MQTT_PORT = Number(import.meta.env.VITE_MQTT_PORT) || 9001;
 const MQTT_USER = import.meta.env.VITE_MQTT_USER;
 const MQTT_PASS = import.meta.env.VITE_MQTT_PASSWD;
 
-// ----------------------------------------------------
-// *** Component หลัก SensorSimulator_with_button ***
-// ----------------------------------------------------
+// Topic Mapping (ให้ตรงกับ Node-RED)
+const TOPIC_MAP = {
+    'Temperature': '/temp',
+    'Vibration': '/vibration',
+    'RPM Sensor': '/rpm',
+    'Water Level': '/level',
+};
+
+// Realistic Ranges (ช่วงข้อมูลที่สมจริง)
+const RANGES = {
+    'Temperature': { min: 20, max: 90, step: 1, unit: '°C' },
+    'Vibration':   { min: 0, max: 20, step: 0.1, unit: 'mm/s' }, // 0-20 พอ เกินนี้พัง
+    'RPM Sensor':  { min: 0, max: 4000, step: 10, unit: 'RPM' },
+    'Water Level': { min: 0, max: 5.0, step: 0.1, unit: 'm' },
+};
 
 function SensorSimulator() {
-    const [client, setClient] = useState(null); 
-    const [isConnected, setIsConnected] = useState(false); 
-    const [log, setLog] = useState([]); 
-    const [availableUnits, setAvailableUnits] = useState([]); 
-    const [selectedUnitId, setSelectedUnitId] = useState('unit01'); 
-    const [selectedUnitName, setSelectedUnitName] = useState('Default Unit');
-    const NODE_RED_API_URL = `http://${MQTT_HOST}:1880`;
+    // --- State Management ---
+    const [client, setClient] = useState(null);
+    const [isConnected, setIsConnected] = useState(false);
+    const [isAutoSend, setIsAutoSend] = useState(true); // เปิด Auto เป็นค่าเริ่มต้น
+    
+    const [availableUnits, setAvailableUnits] = useState([]);
+    const [selectedUnitId, setSelectedUnitId] = useState('');
+    const [selectedUnitName, setSelectedUnitName] = useState('Loading...');
 
-    // State สำหรับเก็บค่า Slider ทั้ง 4 ตัว
+    const [log, setLog] = useState([]);
+    
+    // Values State
     const [sensorValues, setSensorValues] = useState({
-        'Temperature': 58,
-        'Vibration': 7069,
-        'RPM Sensor': 5479,
-        'Water Level': 347.00,
+        'Temperature': 45,
+        'Vibration': 2.5,
+        'RPM Sensor': 1500,
+        'Water Level': 2.5,
     });
 
-    // Mapping ชื่อเซนเซอร์ไป Topic Suffix
-    const topicMap = {
-        'Temperature': '/temp',
-        'Vibration': '/vibration',
-        'RPM Sensor': '/rpm',
-        'Water Level': '/level',
-    };
-    
-    // ฟังก์ชันสำหรับบันทึก Log 
-    const addLog = useCallback((message) => {
-        setLog(prevLog => [`[${new Date().toLocaleTimeString()}] ${message}`, ...prevLog.slice(0, 9)]);
-    }, []);
+    const NODE_RED_API_URL = `http://${MQTT_HOST}:1880`;
 
-    // --- 1. เชื่อมต่อ MQTT Broker และดึงข้อมูล Unit (Effect รันครั้งเดียว) ---
+    // --- Helper: Add Log ---
+    const addLog = (msg) => {
+        setLog(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev.slice(0, 7)]);
+    };
+
+    // --- 1. Fetch Units & Connect MQTT (Run Once) ---
     useEffect(() => {
-        // --- 1.1 ส่วนดึงข้อมูล Units จาก Node-RED API ---
+        // 1.1 Fetch Units
         const fetchUnits = async () => {
             try {
-                const response = await fetch(`${NODE_RED_API_URL}/api/villages/status`);
+                const res = await fetch(`${NODE_RED_API_URL}/api/villages/status`); // แก้ URL ตาม API จริงของคุณ
+                // หมายเหตุ: ถ้า API นี้ยังไม่พร้อม ให้ Hardcode ไปก่อนได้
+                // const data = [{ unit_id: 'unit01', name: 'Village 1' }, { unit_id: 'unit02', name: 'Village 2' }];
                 
-                if (!response.ok) {
-                    throw new Error('Failed to fetch units from Node-RED');
-                }
-                const data = await response.json();
-                console.log(data);
-                setAvailableUnits(data);
-                setSelectedUnitName(data);
-                
-                // ตั้งค่า Unit แรกเป็นค่าเริ่มต้น
-                if (data.length > 0) {
+                const data = await res.json();
+                if (data && data.length > 0) {
+                    setAvailableUnits(data);
                     setSelectedUnitId(data[0].unit_id);
-                    setSelectedUnitName(data[0].name);
+                    setSelectedUnitName(data[0].name || data[0].unit_name);
+                } else {
+                    // Fallback ถ้าไม่มีข้อมูล
+                    const defaults = [{ unit_id: 'unit01', name: 'Default Unit 01' }];
+                    setAvailableUnits(defaults);
+                    setSelectedUnitId('unit01');
+                    setSelectedUnitName('Default Unit 01');
                 }
-            } catch (error) {
-                console.error("Error fetching units:", error);
-                addLog(`❌ Failed to load Unit list: ${error.message}`);
+            } catch (err) {
+                console.error(err);
+                addLog("⚠️ Fetch Error, using default units.");
+                setAvailableUnits([{ unit_id: 'unit01', name: 'Fallback Unit' }]);
+                setSelectedUnitId('unit01');
             }
         };
         fetchUnits();
 
-        // --- 1.2 ส่วนเชื่อมต่อ MQTT Broker (Paho Client) ---
-        if (!MQTT_HOST || !MQTT_PORT) {
-            addLog('❌ Error: VITE_MQTT_HOST or VITE_MQTT_PORT is missing in .env file.');
-            return;
-        }
+        // 1.2 Connect MQTT
+        const mqttClient = new Paho.Client(MQTT_HOST, MQTT_PORT, `sim_${Math.random().toString(16).substr(2,6)}`);
+        
+        mqttClient.onConnectionLost = (obj) => {
+            setIsConnected(false);
+            addLog(`❌ Connection Lost: ${obj.errorMessage}`);
+        };
 
-        const clientId = 'react_sim_' + Math.random().toString(16).substr(2, 8);
-        
-        // สร้าง Client Object
-        const mqttClient = new Paho.Client(MQTT_HOST, Number(MQTT_PORT), "", clientId);
-        
-        // กำหนด Handler เมื่อ Connection หลุด
-        mqttClient.onConnectionLost = (response) => { setIsConnected(false); addLog('⚠️ Lost connection'); };
-        
-        // เริ่มต้นการเชื่อมต่อ
         mqttClient.connect({
-            onSuccess: () => { setIsConnected(true); addLog('✅ Connected!'); },
-            onFailure: (r) => { setIsConnected(false); addLog(`❌ Failed: ${r.errorMessage}`); },
+            onSuccess: () => {
+                setIsConnected(true);
+                addLog("✅ MQTT Connected!");
+            },
+            onFailure: (err) => {
+                setIsConnected(false);
+                addLog(`❌ Connect Failed: ${err.errorMessage}`);
+            },
             userName: MQTT_USER,
             password: MQTT_PASS,
+            useSSL: false // ปรับเป็น true ถ้าใช้ wss
         });
+
         setClient(mqttClient);
-        
-        // Cleanup function: ตัดการเชื่อมต่อเมื่อ Component ถูกยกเลิก
-        return () => { if (mqttClient && mqttClient.isConnected()) mqttClient.disconnect(); };
-    }, [addLog, NODE_RED_API_URL]); 
 
-    // ----------------------------------------------------
-    // *** NEW: ฟังก์ชันสำหรับส่งข้อมูลไปยัง Broker (ห่อด้วย useCallback) ***
-    // ----------------------------------------------------
+        return () => {
+            if (mqttClient.isConnected()) mqttClient.disconnect();
+        };
+    }, []);
+
+
+    // --- 2. Publish Logic ---
     const publishData = useCallback(() => {
-        if (!client || !client.isConnected()) {
-            addLog('❌ Not connected to Broker. Cannot publish.');
-            return;
-        }
+        if (!client || !client.isConnected()) return;
 
-        const turbineId = selectedUnitId; 
-        const currentTopicBase = `gnt/${turbineId}`;
+        const baseTopic = `gnt/${selectedUnitId}`;
         
-        Object.entries(sensorValues).forEach(([sensorName, value]) => {
-            const topicSuffix = topicMap[sensorName]; 
-            const fullTopic = currentTopicBase + topicSuffix; 
+        Object.entries(sensorValues).forEach(([name, value]) => {
+            const suffix = TOPIC_MAP[name];
+            const topic = `${baseTopic}${suffix}`;
             
-            // ตั้งชื่อ Field (เช่น 'Temperature' -> 'temperature')
-            const fieldName = sensorName.split(' ')[0].toLowerCase().replace('sensor', 'rpm'); 
+            // แปลงชื่อ Field ให้ตรงกับ Database (เช่น 'RPM Sensor' -> 'rpm')
+            let fieldKey = name.toLowerCase();
+            if (name === 'RPM Sensor') fieldKey = 'rpm';
+            if (name === 'Water Level') fieldKey = 'level';
+            if (name === 'Temperature') fieldKey = 'temperature'; // หรือ temp แล้วแต่ DB
 
-            const payloadObject = {};
-            payloadObject[fieldName] = value;
+            const payload = JSON.stringify({ [fieldKey]: value });
             
-            const payloadString = JSON.stringify(payloadObject);
-            const message = new Paho.Message(payloadString);
-            
-            message.destinationName = fullTopic;
-            
+            const message = new Paho.Message(payload);
+            message.destinationName = topic;
             client.send(message);
-            addLog(`➡️ Sent ${fieldName}: ${value.toFixed(2)} to ${fullTopic}`);
         });
 
-        addLog(`✅ Sent 4 Sensor Readings for ${selectedUnitName}.`);
-    }, [client, selectedUnitId, sensorValues, topicMap, addLog, selectedUnitName]); 
+        addLog(`📤 Sent data for ${selectedUnitId}`);
+    }, [client, selectedUnitId, sensorValues]);
 
-    // ----------------------------------------------------
-    // *** NEW: ตั้งค่า Timer สำหรับส่งข้อมูลทุก 10 วินาที ***
-    // ----------------------------------------------------
+
+    // --- 3. Auto Send Interval ---
     useEffect(() => {
-        // เริ่ม Interval เฉพาะเมื่อเชื่อมต่อแล้ว
-        if (isConnected) {
-            // ตั้งค่า Interval ให้เรียก publishData ทุก 10,000 มิลลิวินาที (10 วินาที)
-            const intervalId = setInterval(() => {
-                publishData();
-            }, 10000); 
-
-            // Cleanup function: หยุด Timer เมื่อ Component ถูก Unmount หรือ isConnected เปลี่ยน
-            return () => clearInterval(intervalId);
+        let interval = null;
+        if (isConnected && isAutoSend) {
+            interval = setInterval(publishData, 5000); // ส่งทุก 5 วินาที
         }
-        // Dependency: isConnected และ publishData (ต้องเป็น useCallback)
-    }, [isConnected, publishData]); 
+        return () => { if (interval) clearInterval(interval); };
+    }, [isConnected, isAutoSend, publishData]);
 
-    // --- ฟังก์ชันจัดการการเปลี่ยนแปลง Slider ---
-    const handleSliderChange = (sensorName, event) => {
-        const value = parseFloat(event.target.value);
-        setSensorValues(prevValues => ({
-            ...prevValues,
-            [sensorName]: value,
-        }));
+
+    // --- Handlers ---
+    const handleSlider = (name, val) => {
+        setSensorValues(prev => ({ ...prev, [name]: parseFloat(val) }));
     };
 
-    // --- ฟังก์ชันจัดการ Dropdown Change ---
-    const handleUnitChange = (e) => {
-        const newUnitId = e.target.value;
-        setSelectedUnitId(newUnitId);
-        
-        // อัปเดตชื่อ Unit สำหรับแสดงใน Header และ Log
-        const unit = availableUnits.find(u => u.unit_id === newUnitId);
-        if (unit) {
-            setSelectedUnitName(unit.unit_name);
-            
+    const handleReset = () => {
+        // รีเซ็ตทุกอย่างเป็น 0 (เอาไว้แก้บั๊กค่าค้าง)
+        const zeroValues = {
+            'Temperature': 0,
+            'Vibration': 0,
+            'RPM Sensor': 0,
+            'Water Level': 0,
+        };
+        setSensorValues(zeroValues);
+        // Force send ทันที
+        if(client && client.isConnected()) {
+            // ต้องใช้ timeout นิดหน่อยเพื่อให้ State อัปเดตก่อนส่ง (แบบบ้านๆ)
+            // หรือส่งค่า 0 ไปตรงๆ เลย
+            setTimeout(() => {
+               // Logic publish ซ้ำตรงนี้ หรือจะรอ Auto รอบหน้าก็ได้
+               // แต่เพื่อความชัวร์ ส่ง Manual เลย
+               const baseTopic = `gnt/${selectedUnitId}`;
+               Object.entries(zeroValues).forEach(([name, val]) => {
+                   let fieldKey = name === 'RPM Sensor' ? 'rpm' : (name === 'Water Level' ? 'level' : name.toLowerCase());
+                   if(fieldKey === 'temperature') fieldKey = 'temp'; // check db column name mapping
+                   
+                   const msg = new Paho.Message(JSON.stringify({ [fieldKey]: 0 }));
+                   msg.destinationName = `${baseTopic}${TOPIC_MAP[name]}`;
+                   client.send(msg);
+               });
+               addLog("🛑 EMERGENCY RESET SENT!");
+            }, 100);
         }
     };
 
-    // --- ส่วนแสดงผล Slider ---
-    const renderSlider = (name, min, max, step) => (
-        <div key={name} style={{ margin: '20px 0', border: '1px solid #ccc', padding: '15px', borderRadius: '5px' }}>
-            <label style={{ display: 'block', fontWeight: 'bold' }}>
-                {name}: {sensorValues[name].toFixed(name === 'Water Level' ? 2 : 0)}
-            </label>
-            <input
-                type="range"
-                min={min}
-                max={max}
-                step={step}
-                value={sensorValues[name]}
-                onChange={(e) => handleSliderChange(name, e)}
-                style={{ width: '100%', marginTop: '5px' }}
-            />
-        </div>
-    );
-
+    // --- Render UI ---
     return (
-        <div style={{ maxWidth: '800px', margin: '50px auto', fontFamily: 'Arial' }}>
-            {/* อัปเดต Header ให้แสดง Unit Name และ ID ที่ถูกเลือก */}
-            <h2>⚙️ Sensor Data Simulator: {selectedUnitName} ({selectedUnitId})</h2>
+        <div style={{ maxWidth: '600px', margin: '40px auto', fontFamily: 'Sarabun, sans-serif', border:'1px solid #ddd', borderRadius:'12px', overflow:'hidden', boxShadow:'0 4px 15px rgba(0,0,0,0.1)' }}>
             
-            <div style={{ padding: '10px', backgroundColor: isConnected ? '#d4edda' : '#f8d7da', color: isConnected ? '#155724' : '#721c24', borderRadius: '5px', marginBottom: '20px' }}>
-                สถานะ Broker: **{isConnected ? 'เชื่อมต่อแล้ว' : 'กำลังรอเชื่อมต่อ...'}**
-            </div>
-
-            {/* Dropdown สำหรับเลือก Unit */}
-            <div style={{ marginBottom: '20px', padding: '10px', border: '1px solid #ccc', borderRadius: '5px' }}>
-                <label htmlFor="unit-selector" style={{ fontWeight: 'bold' }}>
-                    **เลือกหมู่บ้าน:** {/* <-- เปลี่ยน Label */}
-                </label>
-                <select
-                    id="unit-selector"
-                    value={selectedUnitId}
-                    onChange={handleUnitChange}
-                    style={{ marginLeft: '10px', padding: '8px' }}
-                >
-                    {availableUnits.map((unit) => (
-                        <option key={unit.unit_id} value={unit.unit_id}>
-                            {unit.name}
-                        </option>
-                    ))}
-                </select>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                <div>
-                    {renderSlider('Temperature', 0, 100, 1)}
-                    {renderSlider('Vibration', 0, 10000, 10)}
-                    {renderSlider('RPM Sensor', 0, 8000, 10)}
-                    {renderSlider('Water Level', 0, 1000, 1)}
-                </div>
-                {/* Log Area */}
-                <div style={{ border: '1px solid #eee', padding: '15px', height: '400px', overflowY: 'scroll', backgroundColor: '#f9f9f9' }}>
-                    <h4>Activity Log</h4>
-                    {log.map((entry, index) => (
-                        <div key={index} style={{ fontSize: '0.8em', marginBottom: '3px' }}>{entry}</div>
-                    ))}
+            {/* Header */}
+            <div style={{ background: isConnected ? 'linear-gradient(to right, #28a745, #218838)' : '#dc3545', color: 'white', padding: '20px', textAlign: 'center' }}>
+                <h2 style={{ margin: 0 }}>🎛️ Simulation Controller</h2>
+                <div style={{ fontSize: '0.9rem', marginTop: '5px', opacity: 0.9 }}>
+                    Status: {isConnected ? 'ONLINE 🟢' : 'OFFLINE 🔴'}
                 </div>
             </div>
 
-            {/* แสดงสถานะการส่งข้อมูลอัตโนมัติ */}
-            <div 
-                style={{ 
-                    marginTop: '20px', 
-                    padding: '15px 30px', 
-                    fontSize: '1.2em', 
-                    cursor: 'default', 
-                    backgroundColor: isConnected ? '#007bff' : '#ccc', 
-                    color: 'white', 
-                    border: 'none', 
-                    borderRadius: '5px',
-                    textAlign: 'center'
-                }}
-            >
-                {isConnected ? 
-                    '✅ Data Publishing: AUTO (Every 10 seconds)' : 
-                    '⏳ Waiting for connection to start AUTO publishing...'
-                }
+            <div style={{ padding: '20px' }}>
+                
+                {/* Unit Selector */}
+                <div style={{ marginBottom: '20px' }}>
+                    <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Target Unit:</label>
+                    <select 
+                        style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ccc', fontSize:'1rem' }}
+                        value={selectedUnitId}
+                        onChange={(e) => {
+                            setSelectedUnitId(e.target.value);
+                            const u = availableUnits.find(u => u.unit_id === e.target.value);
+                            if(u) setSelectedUnitName(u.name || u.unit_name);
+                        }}
+                    >
+                        {availableUnits.map(u => (
+                            <option key={u.unit_id} value={u.unit_id}>{u.name || u.unit_name} ({u.unit_id})</option>
+                        ))}
+                    </select>
+                </div>
+
+                {/* Controls Area */}
+                <div style={{ background: '#f8f9fa', padding: '20px', borderRadius: '8px', marginBottom: '20px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                        <h3 style={{ margin: 0 }}>Sensors</h3>
+                        <button 
+                            onClick={handleReset}
+                            style={{ background: '#dc3545', color: 'white', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', fontSize:'0.8rem' }}
+                        >
+                            🛑 STOP / RESET 0
+                        </button>
+                    </div>
+
+                    {Object.entries(RANGES).map(([name, conf]) => (
+                        <div key={name} style={{ marginBottom: '15px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px', fontSize:'0.9rem' }}>
+                                <label>{name}</label>
+                                <span style={{ fontWeight: 'bold', color: '#007bff' }}>
+                                    {sensorValues[name].toFixed(name === 'Vibration' ? 2 : 0)} {conf.unit}
+                                </span>
+                            </div>
+                            <input 
+                                type="range" 
+                                min={conf.min} max={conf.max} step={conf.step}
+                                value={sensorValues[name]}
+                                onChange={(e) => handleSlider(name, e.target.value)}
+                                style={{ width: '100%', cursor: 'pointer' }}
+                            />
+                        </div>
+                    ))}
+                </div>
+
+                {/* Actions */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <button
+                        onClick={() => setIsAutoSend(!isAutoSend)}
+                        style={{
+                            padding: '12px', border: 'none', borderRadius: '6px', cursor: 'pointer',
+                            background: isAutoSend ? '#ffc107' : '#28a745',
+                            color: isAutoSend ? '#212529' : 'white',
+                            fontWeight: 'bold'
+                        }}
+                    >
+                        {isAutoSend ? '⏸️ Pause Auto-Send' : '▶️ Start Auto-Send'}
+                    </button>
+                    
+                    <button
+                        onClick={publishData}
+                        disabled={isAutoSend} // ถ้า Auto อยู่ ให้ปิดปุ่มนี้กันกดซ้ำ
+                        style={{
+                            padding: '12px', border: 'none', borderRadius: '6px', cursor: 'pointer',
+                            background: '#17a2b8', color: 'white',
+                            opacity: isAutoSend ? 0.6 : 1
+                        }}
+                    >
+                        📤 Send Once
+                    </button>
+                </div>
+
+                {/* Logs */}
+                <div style={{ marginTop: '20px', background: '#343a40', color: '#00ff00', padding: '10px', borderRadius: '6px', height: '150px', overflowY: 'auto', fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                    {log.length === 0 && <div style={{opacity:0.5}}>Waiting for activity...</div>}
+                    {log.map((l, i) => <div key={i}>{l}</div>)}
+                </div>
+
             </div>
         </div>
     );
