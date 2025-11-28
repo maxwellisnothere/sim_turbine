@@ -421,7 +421,8 @@ function SensorSimulator() {
 
     useEffect(() => {
         let interval = null;
-        if (isConnected && isAutoSend) interval = setInterval(publishData, 5000); 
+        // 👇 แก้ไขตรงนี้ครับ จาก 5000 เป็น 2000 (2 วินาที)
+        if (isConnected && isAutoSend) interval = setInterval(publishData, 2000); 
         return () => { if (interval) clearInterval(interval); };
     }, [isConnected, isAutoSend, publishData]);
 
