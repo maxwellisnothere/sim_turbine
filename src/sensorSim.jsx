@@ -5,7 +5,7 @@ import Paho from 'paho-mqtt';
 // *** Config & Constants ***
 // ----------------------------------------------------
 const MQTT_HOST = import.meta.env.VITE_MQTT_HOST;
-const MQTT_PORT = Number(import.meta.env.VITE_MQTT_PORT) || 9001;
+const MQTT_PORT = Number(import.meta.env.VITE_MQTT_PORT) || 8884; // Default port for WSS
 const MQTT_USER = import.meta.env.VITE_MQTT_USER;
 const MQTT_PASS = import.meta.env.VITE_MQTT_PASSWD;
 
@@ -344,7 +344,7 @@ const customStyles = `
 `;
 
 function SensorSimulator() {
-    // --- State Management (Same Logic) ---
+    // --- State Management ---
     const [client, setClient] = useState(null);
     const [isConnected, setIsConnected] = useState(false);
     const [isAutoSend, setIsAutoSend] = useState(true);
@@ -367,10 +367,12 @@ function SensorSimulator() {
         setLog(prev => [`> ${msg}`, ...prev.slice(0, 7)]);
     };
 
-    // --- Effects & Logic (Same as before) ---
+    // --- Effects & Logic ---
     useEffect(() => {
         const fetchUnits = async () => {
             try {
+                // NOTE: ถ้า Node-RED ไม่ได้เปิด Public หรือติด CORS 
+                // บรรทัดนี้จะ Error แล้วไปใช้ค่า Default แทนครับ (ไม่ต้องตกใจ)
                 const res = await fetch(`${NODE_RED_API_URL}/api/villages/status`);
                 const data = await res.json();
                 if (data && data.length > 0) {
@@ -384,20 +386,32 @@ function SensorSimulator() {
                     setSelectedUnitName('Factory Unit A-01');
                 }
             } catch (err) {
-                console.error(err);
+                console.warn("API Fetch failed (Using Demo Mode):", err);
                 setAvailableUnits([{ unit_id: 'unit01', name: 'Demo Unit 01' }]);
                 setSelectedUnitId('unit01');
+                setSelectedUnitName('Demo Unit 01');
             }
         };
         fetchUnits();
 
+        // ------------------------------------------------
+        // *** MQTT Connection Logic for Cloud (Secure) ***
+        // ------------------------------------------------
         const mqttClient = new Paho.Client(MQTT_HOST, MQTT_PORT, `sim_${Math.random().toString(16).substr(2,6)}`);
-        mqttClient.onConnectionLost = (obj) => { setIsConnected(false); addLog(`Lost: ${obj.errorMessage}`); };
+        
+        mqttClient.onConnectionLost = (obj) => { 
+            setIsConnected(false); 
+            addLog(`Lost: ${obj.errorMessage}`); 
+        };
+        
         mqttClient.connect({
-            onSuccess: () => { setIsConnected(true); addLog("Connected to Broker"); },
+            onSuccess: () => { setIsConnected(true); addLog("Connected to Cloud Broker"); },
             onFailure: (err) => { setIsConnected(false); addLog(`Fail: ${err.errorMessage}`); },
-            userName: MQTT_USER, password: MQTT_PASS, useSSL: false 
+            userName: MQTT_USER, 
+            password: MQTT_PASS, 
+            useSSL: true // <--- IMPORTANT: Must be true for HiveMQ Cloud / WSS
         });
+        
         setClient(mqttClient);
         return () => { if (mqttClient.isConnected()) mqttClient.disconnect(); };
     }, []);
@@ -421,7 +435,6 @@ function SensorSimulator() {
 
     useEffect(() => {
         let interval = null;
-        // 👇 แก้ไขตรงนี้ครับ จาก 5000 เป็น 2000 (2 วินาที)
         if (isConnected && isAutoSend) interval = setInterval(publishData, 2000); 
         return () => { if (interval) clearInterval(interval); };
     }, [isConnected, isAutoSend, publishData]);
@@ -434,7 +447,6 @@ function SensorSimulator() {
         const zeroValues = { 'Temperature': 0, 'Vibration': 0, 'RPM Sensor': 0, 'Water Level': 0 };
         setSensorValues(zeroValues);
         addLog("Resetting values...");
-        // (Logic to send 0 is omitted for brevity but can be added back if needed)
     };
 
     // --- Render ---
