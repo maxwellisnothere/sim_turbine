@@ -361,8 +361,8 @@ function SensorSimulator() {
         'Water Level': 2.5,
     });
 
-    const NODE_RED_API_URL = `http://${MQTT_HOST}:1880`;
-
+// แก้บรรทัดนี้
+const NODE_RED_API_URL = import.meta.env.VITE_API_URL || `http://${MQTT_HOST}:1880`;
     const addLog = (msg) => {
         setLog(prev => [`> ${msg}`, ...prev.slice(0, 7)]);
     };
