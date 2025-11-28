@@ -367,25 +367,34 @@ function SensorSimulator() {
 
     // --- Effects & Logic ---
     useEffect(() => {
-        // *** 1. สร้างรายชื่อ Unit แบบ Hardcode (ไม่ต้องดึงจาก DB) ***
-        // สร้าง loop 10 ตัว (unit01 - unit10)
-        const generateStaticUnits = () => {
-            const units = [];
-            for (let i = 1; i <= 10; i++) {
-                const id = `unit${String(i).padStart(2, '0')}`; // unit01, unit02...
-                units.push({
-                    unit_id: id,
-                    name: `Factory Unit ${String(i).padStart(2, '0')}` // Factory Unit 01...
-                });
-            }
-            setAvailableUnits(units);
-            // ตั้งค่าเริ่มต้นเป็นตัวแรก
-            setSelectedUnitId(units[0].unit_id);
-            setSelectedUnitName(units[0].name);
-            addLog("Loaded 10 Static Units");
-        };
+    // *** 1. สร้างรายชื่อ Unit แบบ Hardcode (ระบุชื่อหมู่บ้านเองกับมือ) ***
+    const generateStaticUnits = () => {
+        // ประกาศตัวแปรรับจบ ใส่ชื่อหมู่บ้านจริงเข้าไปเลยจารย์
+        const manualUnits = [
+            { unit_id: 'unit01', name: 'หมู่บ้านโคกอีแร้ง (Khok E-Raeng)' },
+            { unit_id: 'unit02', name: 'หมู่บ้านหนองหมาว้อ (Nong Mah Wor)' },
+            { unit_id: 'unit03', name: 'หมู่บ้านทุ่งหมาเมิน (Tung Mah Mern)' },
+            { unit_id: 'unit04', name: 'หมู่บ้านสว่างคาตา (Sawang Ka Ta)' },
+            { unit_id: 'unit05', name: 'หมู่บ้านหลับไม่ตื่น (Deep Sleep Village)' },
+            { unit_id: 'unit06', name: 'หมู่บ้านฟื้นไม่มี (No Resurrection)' },
+            { unit_id: 'unit07', name: 'หมู่บ้านหนีหนี้สิน (Escape Debt)' },
+            { unit_id: 'unit08', name: 'หมู่บ้านกินแกลบ (Eat Rice Husk)' },
+            { unit_id: 'unit09', name: 'หมู่บ้านแอบแซ่บ (Secretly Zap)' },
+            { unit_id: 'unit10', name: 'หมู่บ้านกลับใจ (Repentance Village)' },
+        ];
 
-        generateStaticUnits();
+        setAvailableUnits(manualUnits);
+
+        // ตั้งค่าเริ่มต้นเป็นตัวแรก (กันเหนียว เช็คความยาวก่อน)
+        if (manualUnits.length > 0) {
+            setSelectedUnitId(manualUnits[0].unit_id);
+            setSelectedUnitName(manualUnits[0].name);
+        }
+        
+        addLog(`Loaded ${manualUnits.length} Manual Units`);
+    };
+
+    generateStaticUnits();
 
         // *** 2. เชื่อมต่อ MQTT (เหมือนเดิม) ***
         const mqttClient = new Paho.Client(MQTT_HOST, MQTT_PORT, `sim_${Math.random().toString(16).substr(2,6)}`);
