@@ -361,42 +361,33 @@ function SensorSimulator() {
         'Water Level': 2.5,
     });
 
-// แก้บรรทัดนี้
-const NODE_RED_API_URL = import.meta.env.VITE_API_URL || `http://${MQTT_HOST}:1880`;
     const addLog = (msg) => {
         setLog(prev => [`> ${msg}`, ...prev.slice(0, 7)]);
     };
 
     // --- Effects & Logic ---
     useEffect(() => {
-        const fetchUnits = async () => {
-            try {
-                // NOTE: ถ้า Node-RED ไม่ได้เปิด Public หรือติด CORS 
-                // บรรทัดนี้จะ Error แล้วไปใช้ค่า Default แทนครับ (ไม่ต้องตกใจ)
-                const res = await fetch(`${NODE_RED_API_URL}/api/villages/status`);
-                const data = await res.json();
-                if (data && data.length > 0) {
-                    setAvailableUnits(data);
-                    setSelectedUnitId(data[0].unit_id);
-                    setSelectedUnitName(data[0].name || data[0].unit_name);
-                } else {
-                    const defaults = [{ unit_id: 'unit01', name: 'Factory Unit A-01' }, { unit_id: 'unit02', name: 'Factory Unit B-02' }];
-                    setAvailableUnits(defaults);
-                    setSelectedUnitId('unit01');
-                    setSelectedUnitName('Factory Unit A-01');
-                }
-            } catch (err) {
-                console.warn("API Fetch failed (Using Demo Mode):", err);
-                setAvailableUnits([{ unit_id: 'unit01', name: 'Demo Unit 01' }]);
-                setSelectedUnitId('unit01');
-                setSelectedUnitName('Demo Unit 01');
+        // *** 1. สร้างรายชื่อ Unit แบบ Hardcode (ไม่ต้องดึงจาก DB) ***
+        // สร้าง loop 10 ตัว (unit01 - unit10)
+        const generateStaticUnits = () => {
+            const units = [];
+            for (let i = 1; i <= 10; i++) {
+                const id = `unit${String(i).padStart(2, '0')}`; // unit01, unit02...
+                units.push({
+                    unit_id: id,
+                    name: `Factory Unit ${String(i).padStart(2, '0')}` // Factory Unit 01...
+                });
             }
+            setAvailableUnits(units);
+            // ตั้งค่าเริ่มต้นเป็นตัวแรก
+            setSelectedUnitId(units[0].unit_id);
+            setSelectedUnitName(units[0].name);
+            addLog("Loaded 10 Static Units");
         };
-        fetchUnits();
 
-        // ------------------------------------------------
-        // *** MQTT Connection Logic for Cloud (Secure) ***
-        // ------------------------------------------------
+        generateStaticUnits();
+
+        // *** 2. เชื่อมต่อ MQTT (เหมือนเดิม) ***
         const mqttClient = new Paho.Client(MQTT_HOST, MQTT_PORT, `sim_${Math.random().toString(16).substr(2,6)}`);
         
         mqttClient.onConnectionLost = (obj) => { 
